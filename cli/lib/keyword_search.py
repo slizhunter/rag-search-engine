@@ -1,29 +1,89 @@
-import string
+import string, pickle, os
 from .search_utils import DEFAULT_SEARCH_LIMIT, load_movies, load_stopwords
 from nltk.stem import PorterStemmer
+from collections import defaultdict
 
-stemmer = PorterStemmer()
+# Inverted Index Implementation
+# Takes the shape: {
+#   "token1": {doc_id1, doc_id2, ...},
+#   "token2": {doc_id3, doc_id4, ...},
+#   ...
+# } 
+# For example: {
+#   "space": {1, 3, 5},
+#   "adventure": {2, 3},
+#   ...
+# }
+# where each token maps to a set of document IDs that contain that token. 
+# The document IDs correspond to the "id" field in the movie data, 
+# and the actual movie information can be retrieved from the docmap using these IDs.
+class InvertedIndex:
+    def __init__(self) -> None:
+         self.index = defaultdict(set)
+         self.docmap: dict[int, dict] = {}
+         self.index_path = "cache/index.pkl"
+         self.docmap_path = "cache/docmap.pkl"
+
+    def __add_document(self, doc_id: int, text: str) -> None: # Add a document to the inverted index by tokenizing the text and updating the index with the document ID for each token
+        tokens = tokenize(text)
+        for token in tokens:
+            self.index[token].add(doc_id) # Add the document ID to the set of document IDs for the given token in the inverted index
+
+    def get_documents(self, term: str) -> list[int]: # Return a list of document IDs that contain the given term sorted in ascending order
+        return sorted(list(self.index.get(term, set())))
+    
+    def build(self) -> None:
+        movies = load_movies() # Load movie data from JSON file as a list of dictionaries
+        for movie in movies:
+            doc_id = movie["id"]
+            self.docmap[doc_id] = movie
+            self.__add_document(doc_id, f"{movie['title']} {movie['description']}") # Add the movie title and description to the inverted index using the document ID as the identifier
+
+    def save(self) -> None:
+        os.makedirs("cache", exist_ok=True)
+        with open(self.index_path, "wb") as f:
+            pickle.dump(self.index, f)
+        with open(self.docmap_path, "wb") as f:
+            pickle.dump(self.docmap, f)
+
+    def load(self) -> None:
+        try:
+            with open(self.index_path, "rb") as f:
+                self.index = pickle.load(f)
+            with open(self.docmap_path, "rb") as f:
+                self.docmap = pickle.load(f)
+        except FileNotFoundError:
+            print("Inverted index files not found. Please run the 'build' command first.")
+            raise
+        
+STOPWORDS = load_stopwords()
+
+def build_command() -> None: # Build the inverted index and save it to disk
+        idx = InvertedIndex()
+        idx.build()
+        idx.save()
 
 def search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
-    movies = load_movies() # Load movie data from JSON file as a list of dictionaries
-    stopword_tokens = tokenize(load_stopwords()) # Load stopwords from file, preprocess and tokenize them into a list of tokens
-    query_tokens = remove_stopwords(tokenize(query), stopword_tokens) # Preprocess and tokenize the search query, then remove stopwords from the query tokens
+    idx = InvertedIndex()
+    idx.load()
+    query_tokens = tokenize(query) # Preprocess and tokenize the search query
     results = []
-    for movie in movies:
-        title_tokens = remove_stopwords(tokenize(movie["title"]), stopword_tokens) # Preprocess and tokenize the movie title, then remove stopwords from the title tokens
-        if has_matching_token(query_tokens, title_tokens):
-                results.append(movie)
+    for query_token in query_tokens:
+        doc_ids = idx.get_documents(query_token) # Get the list of document IDs that contain the query token from the inverted index
+        for doc_id in doc_ids:
+            if doc_id not in results:
+                results.append(doc_id)
                 if len(results) >= limit:
                     break
-    return results
-
-def remove_stopwords(tokens: list[str], stopwords: list[str]) -> list[str]:
-    return [token for token in tokens if token not in stopwords] # Filter out tokens that are present in the stopwords list
+        if len(results) >= limit:
+            break
+    return [idx.docmap[doc_id] for doc_id in results] # Retrieve the actual movie information from the docmap using the document IDs 
+                                                      # and return a list of movie dictionaries that match the search query
 
 def has_matching_token(query_tokens: list[str], title_tokens: list[str]) -> bool:
     for query_token in query_tokens:
         for title_token in title_tokens:
-            if stemmer.stem(query_token) in stemmer.stem(title_token): # Check if the stemmed version of the query token matches the stemmed version of any title token
+            if query_token in title_token: # Check if the query token matches the title token
                 return True
     return False
 
@@ -32,4 +92,16 @@ def preprocess_text(text: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     all_tokens = preprocess_text(text).split() # Split the preprocessed text into tokens based on whitespace
-    return [token for token in all_tokens if token] # Filter out any empty tokens that may result from multiple spaces or punctuation removal
+    valid_tokens = []
+    for token in all_tokens:
+        if token: # Check if the token is not an empty string (which can happen if there are multiple spaces or punctuation removal)
+            valid_tokens.append(token) # Add it to the list of valid tokens
+    filtered_words = []
+    for word in valid_tokens:
+        if word not in STOPWORDS: # Filter out stopwords from the list of valid tokens
+            filtered_words.append(word)
+    stemmer = PorterStemmer()
+    stemmed_tokens = []
+    for word in filtered_words:
+        stemmed_tokens.append(stemmer.stem(word)) # Apply stemming to the filtered tokens to reduce them to their root form
+    return stemmed_tokens
