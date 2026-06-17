@@ -1,7 +1,7 @@
 import string, pickle, os
-from .search_utils import DEFAULT_SEARCH_LIMIT, load_movies, load_stopwords
+from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, load_movies, load_stopwords
 from nltk.stem import PorterStemmer
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 # Inverted Index Implementation
 # Takes the shape: {
@@ -21,13 +21,19 @@ class InvertedIndex:
     def __init__(self) -> None:
          self.index = defaultdict(set)
          self.docmap: dict[int, dict] = {}
-         self.index_path = "cache/index.pkl"
-         self.docmap_path = "cache/docmap.pkl"
+         self.term_frequencies: defaultdict[int, Counter] = defaultdict(Counter)         
+         self.index_path = os.path.join(CACHE_DIR, "index.pkl")
+         self.docmap_path = os.path.join(CACHE_DIR, "docmap.pkl")
+         self.term_frequencies_path = os.path.join(CACHE_DIR, "term_frequencies.pkl")
 
-    def __add_document(self, doc_id: int, text: str) -> None: # Add a document to the inverted index by tokenizing the text and updating the index with the document ID for each token
-        tokens = tokenize(text)
+    def __add_document(self, doc_id: int, text: str) -> None: # Add a document to the inverted index with the document ID and the text content (title + description) to be indexed
+        tokens = tokenize(text) # Preprocess and tokenize the text content to extract meaningful tokens for indexing
         for token in tokens:
             self.index[token].add(doc_id) # Add the document ID to the set of document IDs for the given token in the inverted index
+        self.term_frequencies[doc_id].update(tokens) # Update the term frequencies for the document ID with the tokens from the text content
+
+    def get_tf(self, doc_id: int, term: str) -> int: # Get the term frequency of a specific term in a given document ID
+        return self.term_frequencies[doc_id][term] # Return the count of how many times the term appears in the document with the specified ID
 
     def get_documents(self, term: str) -> list[int]: # Return a list of document IDs that contain the given term sorted in ascending order
         return sorted(list(self.index.get(term, set())))
@@ -40,11 +46,13 @@ class InvertedIndex:
             self.__add_document(doc_id, f"{movie['title']} {movie['description']}") # Add the movie title and description to the inverted index using the document ID as the identifier
 
     def save(self) -> None:
-        os.makedirs("cache", exist_ok=True)
+        os.makedirs(CACHE_DIR, exist_ok=True)
         with open(self.index_path, "wb") as f:
             pickle.dump(self.index, f)
         with open(self.docmap_path, "wb") as f:
             pickle.dump(self.docmap, f)
+        with open(self.term_frequencies_path, "wb") as f:
+            pickle.dump(self.term_frequencies, f)
 
     def load(self) -> None:
         try:
@@ -52,6 +60,8 @@ class InvertedIndex:
                 self.index = pickle.load(f)
             with open(self.docmap_path, "rb") as f:
                 self.docmap = pickle.load(f)
+            with open(self.term_frequencies_path, "rb") as f:
+                self.term_frequencies = pickle.load(f)
         except FileNotFoundError:
             print("Inverted index files not found. Please run the 'build' command first.")
             raise
@@ -80,6 +90,11 @@ def search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
     return [idx.docmap[doc_id] for doc_id in results] # Retrieve the actual movie information from the docmap using the document IDs 
                                                       # and return a list of movie dictionaries that match the search query
 
+def term_frequency_command(doc_id: int, term: str) -> int:
+    idx = InvertedIndex()
+    idx.load()
+    return idx.get_tf(doc_id, single_token(term)) # Get the term frequency of the specified term in the document with the given ID using the inverted index
+
 def has_matching_token(query_tokens: list[str], title_tokens: list[str]) -> bool:
     for query_token in query_tokens:
         for title_token in title_tokens:
@@ -105,3 +120,9 @@ def tokenize(text: str) -> list[str]:
     for word in filtered_words:
         stemmed_tokens.append(stemmer.stem(word)) # Apply stemming to the filtered tokens to reduce them to their root form
     return stemmed_tokens
+
+def single_token(token: str) -> str:
+    tokens = tokenize(token)
+    if len(tokens) == 1:
+        return tokens[0] # Tokenize a single token using the same preprocessing and tokenization steps as the main tokenize function
+    raise Exception("Input is not a single token")
