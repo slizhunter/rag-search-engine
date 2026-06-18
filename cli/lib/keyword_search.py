@@ -1,5 +1,5 @@
-import pickle, os
-from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, load_movies
+import pickle, os, math
+from .search_utils import BM25_K1, CACHE_DIR, DEFAULT_SEARCH_LIMIT, load_movies
 from .token_utils import tokenize, single_token
 from collections import Counter, defaultdict
 
@@ -34,6 +34,16 @@ class InvertedIndex:
 
     def get_tf(self, doc_id: int, term: str) -> int: # Get the term frequency of a specific term in a given document ID
         return self.term_frequencies[doc_id][term] # Return the count of how many times the term appears in the document with the specified ID
+    
+    def get_bm25_idf(self, term: str) -> float: # Get the BM25 inverse document frequency of a specific term
+        total_doc_count = len(self.docmap) # Get the total number of documents in the inverted index
+        term_match_doc_count = len(self.get_documents(term)) # Get the number of documents that contain the specified term using the inverted index
+        idf = math.log((total_doc_count - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1) # Calculate the BM25 IDF using the formula: log((N - n + 0.5) / (n + 0.5) + 1), where N is the total number of documents and n is the number of documents containing the term
+        return idf
+    
+    def get_bm25_tf(self, doc_id: int, term: str, k1=BM25_K1) -> float: # Get the BM25 term frequency of a specific term in a given document ID
+        tf = self.get_tf(doc_id, term)
+        return (tf * (k1 + 1)) / (tf + k1) # Calculate the BM25 term frequency saturation using the formula: (tf * (k1 + 1)) / (tf + k1), where tf is the term frequency and k1 is a tuning parameter that controls the saturation level
 
     def get_documents(self, term: str) -> list[int]: # Return a list of document IDs that contain the given term sorted in ascending order
         return sorted(list(self.index.get(term, set())))
@@ -87,3 +97,13 @@ def search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
             break
     return [idx.docmap[doc_id] for doc_id in results] # Retrieve the actual movie information from the docmap using the document IDs 
                                                       # and return a list of movie dictionaries that match the search query
+
+def bm25_idf_command(term: str) -> float: # Get the BM25 inverse document frequency for a specific term using the inverted index
+    idx = InvertedIndex()
+    idx.load()
+    return idx.get_bm25_idf(single_token(term))
+
+def bm25_tf_command(doc_id: int, term: str, k1: float = BM25_K1) -> float: # Get the BM25 term frequency for a specific term in a given document ID using the inverted index
+    idx = InvertedIndex()
+    idx.load()
+    return idx.get_bm25_tf(doc_id, single_token(term), k1)
