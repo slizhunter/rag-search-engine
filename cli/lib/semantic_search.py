@@ -50,6 +50,13 @@ def embed_text(text: str):
     print(f"First 3 dimensions: {embedding[:3]}")
     print(f"Dimensions: {embedding.shape[0]}")
 
+def embed_query_text(text: str):
+    semantic_search = SemanticSearch()
+    embedding = semantic_search.generate_embedding(text)
+    print(f"Query Text: {text}")
+    print(f"First 3 dimensions: {embedding[:3]}")
+    print(f"Dimensions: {embedding.shape[0]}")
+
 def verify_model():
     semantic_search = SemanticSearch()
     print(f"Model loaded: {semantic_search.model}")
