@@ -4,7 +4,7 @@ import numpy as np
 
 from sentence_transformers import SentenceTransformer
 
-from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, load_movies
+from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, DEFAULT_CHUNK_SIZE, load_movies
 
 MOVIE_PATH = os.path.join(CACHE_DIR, "movie_embeddings.npy")
 
@@ -106,3 +106,12 @@ def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
     results = semantic_search.search(query, limit)
     for i, (score, doc) in enumerate(results):
         print(f"{i + 1}. {doc['title']} (score: {score:.4f}) \n {doc['description']}\n")
+
+def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE):
+    if not text.strip():
+        raise ValueError("Input text cannot be empty")
+    words = text.split()
+    print(f"Chunking {len(text)} characters")
+    for i in range(0, len(words), chunk_size):
+        chunk = " ".join(words[i:i + chunk_size])
+        print(f"{i // chunk_size + 1}. {chunk}")
