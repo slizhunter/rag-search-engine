@@ -107,11 +107,12 @@ def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
     for i, (score, doc) in enumerate(results):
         print(f"{i + 1}. {doc['title']} (score: {score:.4f}) \n {doc['description']}\n")
 
-def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE):
+def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 0):
     if not text.strip():
         raise ValueError("Input text cannot be empty")
     words = text.split()
     print(f"Chunking {len(text)} characters")
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i + chunk_size])
-        print(f"{i // chunk_size + 1}. {chunk}")
+    for i in range(0, len(words), chunk_size - overlap):
+        if len(words[i:i + chunk_size]) > overlap:
+            chunk = " ".join(words[i:i + chunk_size])
+            print(f"{i // (chunk_size - overlap) + 1}. {chunk}")
