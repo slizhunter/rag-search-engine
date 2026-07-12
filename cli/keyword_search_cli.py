@@ -1,8 +1,5 @@
 import argparse
 
-from lib.semantic_search import (
-    verify_model,
-)
 from lib.keyword_search import (
     bm25_idf_command,
     bm25_tf_command,

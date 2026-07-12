@@ -1,17 +1,40 @@
-import os, re
+import os, re, json
 
 import numpy as np
 
 from sentence_transformers import SentenceTransformer
+from typing import TypedDict
 
 from .search_utils import (
     CACHE_DIR, 
     DEFAULT_SEARCH_LIMIT, 
-    DEFAULT_CHUNK_SIZE, 
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_OVERLAP,
     DEFAULT_SEMANTIC_CHUNK_SIZE, 
     load_movies
 )
 MOVIE_PATH = os.path.join(CACHE_DIR, "movie_embeddings.npy")
+CHUNK_PATH = os.path.join(CACHE_DIR, "chunk_embeddings.npy")
+CHUNK_METADATA_PATH = os.path.join(CACHE_DIR, "chunk_metadata.json")
+
+class ChunkMetadata(TypedDict):
+    movie_idx: int
+    chunk_idx: int
+    total_chunks: int
+
+# Example self.documents:
+# [
+#     {"id": 1, "title": "Movie 1", "description": "Description 1"},
+#     {"id": 2, "title": "Movie 2", "description": "Description 2"},
+#     ...
+# ]
+#
+# Examples self.document_map:
+# {
+#     1: {"id": 1, "title": "Movie 1", "description": "Description 1"},
+#     2: {"id": 2, "title": "Movie 2", "description": "Description 2"},
+#     ...
+# }
 
 class SemanticSearch:
     def __init__(self, model_name = 'all-MiniLM-L6-v2'):
@@ -69,6 +92,52 @@ class SemanticSearch:
             )
         return results
 
+class ChunkedSemanticSearch(SemanticSearch):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+         super().__init__(model_name)
+         self.chunk_embeddings = None
+         self.chunk_metadata = None
+        
+    def build_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
+        self.documents = documents
+        self.document_map = {}
+        chunks = []
+        chunk_metadata: list[ChunkMetadata] = []
+        for doc in documents:
+            if len(doc['description']) > 0:
+                doc_chunks = semantic_chunk_text(doc['description'], 4, 1)
+                total_doc_chunks = len(doc_chunks)
+                for chunk_idx, chunk in enumerate(doc_chunks):
+                    chunks.append(chunk)
+                    chunk_metadata.append(
+                        {
+                            "movie_idx": doc["id"],
+                            "chunk_idx": chunk_idx,
+                            "total_chunks": total_doc_chunks,
+                        }
+                    )
+        if not chunks:
+            raise ValueError("No text chunks were generated from the provided documents")
+        self.chunk_embeddings = self.model.encode(chunks)
+        self.chunk_metadata = chunk_metadata
+        np.save(CHUNK_PATH, self.chunk_embeddings)
+        with open(CHUNK_METADATA_PATH, "w") as f:
+            json.dump({"chunks": self.chunk_metadata, "total_chunks": len(chunks)}, f, indent=2)
+        return self.chunk_embeddings
+    
+    def load_or_create_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
+        self.documents = documents
+        self.document_map = {}
+        for doc in documents:
+            self.document_map[doc['id']] = doc
+        if os.path.exists(CHUNK_PATH) and os.path.exists(CHUNK_METADATA_PATH):
+            self.chunk_embeddings = np.load(CHUNK_PATH)
+            with open(CHUNK_METADATA_PATH, "r") as f:
+                chunk_metadata = json.load(f)
+                self.chunk_metadata = chunk_metadata["chunks"]
+            return self.chunk_embeddings
+        return self.build_chunk_embeddings(documents)
+
 def embed_text(text: str):
     semantic_search = SemanticSearch()
     embedding = semantic_search.generate_embedding(text)
@@ -122,12 +191,22 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 0
             chunk = " ".join(words[i:i + chunk_size])
             print(f"{i // (chunk_size - overlap) + 1}. {chunk}")
 
-def semantic_chunk_text(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = 0):
+def semantic_chunk_text(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP):
     if not text.strip():
         raise ValueError("Input text cannot be empty")
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    print(f"Semantically chunking {len(text)} characters")
+    chunks = []
+    #print(f"Semantically chunking {len(text)} characters")
     for i in range(0, len(sentences), max_chunk_size - overlap):
         if len(sentences[i:i + max_chunk_size]) > overlap:
             chunk = " ".join(sentences[i:i + max_chunk_size])
-            print(f"{i // (max_chunk_size - overlap) + 1}. {chunk}")
+            #print(f"{i // (max_chunk_size - overlap) + 1}. {chunk}")
+            chunks.append(chunk)
+    return chunks
+
+def embed_chunks():
+    search_instance = ChunkedSemanticSearch()
+    movies = load_movies()
+    embeddings = search_instance.load_or_create_chunk_embeddings(movies)
+    print(f"Generated {len(embeddings)} chunked embeddings")
+

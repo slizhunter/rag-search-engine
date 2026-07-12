@@ -1,6 +1,7 @@
 import argparse
 
 from lib.semantic_search import (
+    embed_chunks,
     embed_query_text, 
     embed_text, 
     verify_embeddings, 
@@ -69,6 +70,11 @@ def main() -> None:
         "--overlap", type=int, nargs="?", default=0, help="Number of overlapping words between chunks"
     )
 
+    # Command: embed_chunks
+    subparsers.add_parser(
+        "embed_chunks", help="Generate embeddings for chunks of text"
+    )
+
     args = parser.parse_args()
 
     match args.command:
@@ -86,6 +92,8 @@ def main() -> None:
             chunk_text(args.text, args.chunk_size, args.overlap)
         case "semantic_chunk":
             semantic_chunk_text(args.text, args.max_chunk_size, args.overlap)
+        case "embed_chunks":
+            embed_chunks()
         case _:
             parser.print_help()
 
