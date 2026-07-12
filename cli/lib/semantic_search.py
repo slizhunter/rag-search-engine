@@ -1,11 +1,16 @@
-import os
+import os, re
 
 import numpy as np
 
 from sentence_transformers import SentenceTransformer
 
-from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, DEFAULT_CHUNK_SIZE, load_movies
-
+from .search_utils import (
+    CACHE_DIR, 
+    DEFAULT_SEARCH_LIMIT, 
+    DEFAULT_CHUNK_SIZE, 
+    DEFAULT_SEMANTIC_CHUNK_SIZE, 
+    load_movies
+)
 MOVIE_PATH = os.path.join(CACHE_DIR, "movie_embeddings.npy")
 
 class SemanticSearch:
@@ -116,3 +121,13 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 0
         if len(words[i:i + chunk_size]) > overlap:
             chunk = " ".join(words[i:i + chunk_size])
             print(f"{i // (chunk_size - overlap) + 1}. {chunk}")
+
+def semantic_chunk_text(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = 0):
+    if not text.strip():
+        raise ValueError("Input text cannot be empty")
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    print(f"Semantically chunking {len(text)} characters")
+    for i in range(0, len(sentences), max_chunk_size - overlap):
+        if len(sentences[i:i + max_chunk_size]) > overlap:
+            chunk = " ".join(sentences[i:i + max_chunk_size])
+            print(f"{i // (max_chunk_size - overlap) + 1}. {chunk}")
