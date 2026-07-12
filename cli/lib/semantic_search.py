@@ -4,7 +4,7 @@ import numpy as np
 
 from sentence_transformers import SentenceTransformer
 
-from .search_utils import CACHE_DIR, load_movies
+from .search_utils import CACHE_DIR, DEFAULT_SEARCH_LIMIT, load_movies
 
 MOVIE_PATH = os.path.join(CACHE_DIR, "movie_embeddings.npy")
 
@@ -42,6 +42,27 @@ class SemanticSearch:
             raise ValueError("Input text cannot be empty")
         embedding = self.model.encode([text])
         return embedding[0]
+    
+    def search(self, query: str, limit: int = 5):
+        if self.embeddings is None:
+            raise ValueError("No embeddings loaded. Call `load_or_create_embeddings` first.")
+        query_embedding = self.generate_embedding(query)
+        scores = []
+        for i, doc_embedding in enumerate(self.embeddings):
+            similarity_score = cosine_similarity(query_embedding, doc_embedding)
+            # Embeddings are ordered to match self.documents.
+            scores.append((similarity_score, self.documents[i]))
+        scores.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for score, doc in scores[:limit]:
+            results.append(
+                {
+                    "score": score,
+                    "title": doc["title"],
+                    "description": doc["description"]
+                }
+            )
+        return results
 
 def embed_text(text: str):
     semantic_search = SemanticSearch()
@@ -68,3 +89,20 @@ def verify_embeddings():
     embeddings = semantic_search.load_or_create_embeddings(movies)
     print(f"Number of docs:   {len(movies)}")
     print(f"Embeddings shape: {embeddings.shape[0]} vectors in {embeddings.shape[1]} dimensions")
+
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    return dot_product / (norm1 * norm2)
+
+def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
+    semantic_search = SemanticSearch()
+    semantic_search.load_or_create_embeddings(load_movies())
+    results = semantic_search.search(query, limit)
+    for i, (score, doc) in enumerate(results):
+        print(f"{i + 1}. {doc['title']} (score: {score:.4f}) \n {doc['description']}\n")
