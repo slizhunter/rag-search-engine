@@ -8,7 +8,8 @@ from lib.semantic_search import (
     verify_model, 
     semantic_search, 
     chunk_text,
-    semantic_chunk_text
+    semantic_chunk_text,
+    semantic_search_chunked
 )
 
 def main() -> None:
@@ -75,6 +76,15 @@ def main() -> None:
         "embed_chunks", help="Generate embeddings for chunks of text"
     )
 
+    # Command: search_chunked
+    search_chunked_parser = subparsers.add_parser(
+        "search_chunked", help="Search movies using chunked semantic search"
+    )
+    search_chunked_parser.add_argument("query", type=str, help="Search query")
+    search_chunked_parser.add_argument(
+        "--limit", type=int, nargs="?", default=5, help="Number of results to return"
+    )
+
     args = parser.parse_args()
 
     match args.command:
@@ -94,6 +104,8 @@ def main() -> None:
             semantic_chunk_text(args.text, args.max_chunk_size, args.overlap)
         case "embed_chunks":
             embed_chunks()
+        case "search_chunked":
+            semantic_search_chunked(args.query, args.limit)
         case _:
             parser.print_help()
 
