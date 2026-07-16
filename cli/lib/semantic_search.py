@@ -108,7 +108,7 @@ class ChunkedSemanticSearch(SemanticSearch):
         chunk_metadata: list[ChunkMetadata] = []
         for doc in documents:
             if len(doc['description']) > 0:
-                doc_chunks = semantic_chunk_text(doc['description'], 4, 1)
+                doc_chunks = semantic_chunk(doc['description'], 4, 1)
                 total_doc_chunks = len(doc_chunks)
                 for chunk_idx, chunk in enumerate(doc_chunks):
                     chunks.append(chunk)
@@ -218,8 +218,6 @@ def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
         print(f"{i + 1}. {doc['title']} (score: {score:.4f}) \n {doc['description']}\n")
 
 def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 0):
-    if not text.strip():
-        raise ValueError("Input text cannot be empty")
     words = text.split()
     print(f"Chunking {len(text)} characters")
     for i in range(0, len(words), chunk_size - overlap):
@@ -227,18 +225,31 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 0
             chunk = " ".join(words[i:i + chunk_size])
             print(f"{i // (chunk_size - overlap) + 1}. {chunk}")
 
-def semantic_chunk_text(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP):
-    if not text.strip():
-        raise ValueError("Input text cannot be empty")
-    sentences = re.split(r"(?<=[.!?])\s+", text)
+def semantic_chunk(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[str]:
+    text = text.strip()  # Strip leading/trailing whitespace from the input text
+    if len(text) == 0:  # Check if the input text is empty after stripping
+        print("Input text is empty")
+        return []
+    sentences = re.split(r"(?<=[.!?])\s+", text) # Strip out leading/trailing whitespace and split text into sentences based on punctuation followed by whitespace
+    if len(sentences) == 1 and not sentences[0].endswith((('.', '!', '?'))): # Check if the single sentence does not end with punctuation
+        print("Only found: one sentence with no punctuation in the input text")
+        return sentences
     chunks = []
-    #print(f"Semantically chunking {len(text)} characters")
-    for i in range(0, len(sentences), max_chunk_size - overlap):
-        if len(sentences[i:i + max_chunk_size]) > overlap:
-            chunk = " ".join(sentences[i:i + max_chunk_size])
-            #print(f"{i // (max_chunk_size - overlap) + 1}. {chunk}")
-            chunks.append(chunk)
+    for i in range(0, len(sentences), max_chunk_size - overlap): # Iterate over sentences with a step size of max_chunk_size - overlap
+        if len(sentences[i:i + max_chunk_size]) > overlap: # Check if the number of sentences in the current chunk is greater than the overlap to avoid creating chunks that are already included in the previous chunk
+            chunk = " ".join( # Strip leading/trailing whitespace from the sentences in the current chunk and join them into a single string
+                s                                               # Use the walrus operator to assign the stripped sentence to 's' and include it in the join if it's not empty
+                for sentence in sentences[i:i + max_chunk_size] # Iterate over the sentences in the current chunk
+                if (s := sentence.strip())                      # Include the sentence in the chunk if it's not empty
+            )
+            chunks.append(chunk) # Append the chunk to the list of chunks
     return chunks
+
+def semantic_chunk_text(text: str, max_chunk_size: int = DEFAULT_SEMANTIC_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP):
+    chunks = semantic_chunk(text, max_chunk_size, overlap)
+    print(f"Semantically chunking {len(text)} characters into {len(chunks)} chunks")
+    for i, chunk in enumerate(chunks):
+        print(f"{i + 1}. {chunk}")
 
 def embed_chunks():
     search_instance = ChunkedSemanticSearch()
@@ -247,8 +258,8 @@ def embed_chunks():
 
 def semantic_search_chunked(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
     search_instance = ChunkedSemanticSearch()
-    embeddings = search_instance.load_or_create_chunk_embeddings(load_movies())
+    search_instance.load_or_create_chunk_embeddings(load_movies())
     results = search_instance.search_chunks(query, limit)
     for i, result in enumerate(results):
-        print(f"\n{i}. {result['title']} (score: {result['score']:.4f})")
+        print(f"\n{i + 1}. {result['title']} (score: {result['score']:.4f})")
         print(f"   {result['document']}...")
