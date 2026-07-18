@@ -1,9 +1,13 @@
 import os
 
-from .search_utils import load_movies
+from typing import Literal
+
+from .search_utils import load_movies, RRF_K, DEFAULT_SEARCH_LIMIT
+from .query_enhancement import llm_spellcheck, llm_rewrite
 
 from .keyword_search import InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
+
 
 class HybridSearch:
     def __init__(self, documents: list[dict]) -> None:
@@ -71,7 +75,16 @@ class HybridSearch:
         )
         return sorted_results
 
-    def rrf_search(self, query: str, k: int = 60, limit: int = 5) -> list[dict]:
+    def rrf_search(self, query: str, k: int = RRF_K, limit: int = DEFAULT_SEARCH_LIMIT, enhance: Literal["spell", "rewrite"] | None = None) -> list[dict]:
+        if enhance:
+            original_query = query
+            if enhance == "spell":
+                query = llm_spellcheck(original_query)
+            elif enhance == "rewrite":
+                query = llm_rewrite(original_query)
+            if query != original_query:
+                print(f"Enhanced query ({enhance}): '{original_query}' -> '{query}'\n")
+
         bm25_results = self._bm25_search(query, limit * 500)
         semantic_results = self.semantic_search.search_chunks(query, limit * 500)
 
@@ -139,7 +152,7 @@ def handle_weighted_search(query: str, alpha: float, limit: int = 5) -> list[dic
     results = search_engine.weighted_search(query, alpha, limit)
     return results[:limit]
 
-def handle_rrf_search(query: str, k: int = 60, limit: int = 5) -> list[dict]:
+def handle_rrf_search(query: str, k: int = RRF_K, limit: int = DEFAULT_SEARCH_LIMIT, enhance: Literal["spell", "rewrite"] | None = None) -> list[dict]:
     search_engine = HybridSearch(load_movies())
-    results = search_engine.rrf_search(query, k, limit)
+    results = search_engine.rrf_search(query, k, limit, enhance)
     return results[:limit]
