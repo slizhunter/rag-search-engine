@@ -13,3 +13,4 @@ uv.lock
 # Data files
 data/
 cache/
+.env

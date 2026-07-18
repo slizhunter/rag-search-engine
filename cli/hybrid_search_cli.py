@@ -1,6 +1,6 @@
 import argparse
 
-from lib.hybrid_search import normalize
+from lib.hybrid_search import handle_rrf_search, normalize, handle_weighted_search
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hybrid Search CLI")
@@ -14,6 +14,34 @@ def main() -> None:
         "scores", type=float, nargs="*", help="List of scores to normalize"
     )
 
+    # Command: weighted-search
+    weighted_search_parser = subparsers.add_parser(
+        "weighted-search", help="Perform a weighted hybrid search"
+    )
+    weighted_search_parser.add_argument(
+        "query", type=str, help="Search query"
+    )
+    weighted_search_parser.add_argument(
+        "--alpha", type=float, default=0.5, help="Weight for the semantic search component"
+    )
+    weighted_search_parser.add_argument(
+        "--limit", type=int, default=5, help="Maximum number of results to return"
+    )
+
+    # Command: rrf-search
+    rrf_search_parser = subparsers.add_parser(
+        "rrf-search", help="Perform an RRF hybrid search"
+    )
+    rrf_search_parser.add_argument(
+        "query", type=str, help="Search query"
+    )
+    rrf_search_parser.add_argument(
+        "-k", type=int, default=60, help="RRF parameter k"
+    )
+    rrf_search_parser.add_argument(
+        "--limit", type=int, default=5, help="Maximum number of results to return"
+    )
+
     args = parser.parse_args()
 
     match args.command:
@@ -21,6 +49,20 @@ def main() -> None:
             scores = normalize(args.scores)
             for score in scores:
                 print(f"* {score:.4f}")
+        case "weighted-search":
+            results = handle_weighted_search(args.query, args.alpha, args.limit)
+            for i, result in enumerate(results):
+                print(f"{i + 1}. {result['document']['title']}")
+                print(f"   Hybrid Score: {result['hybrid_score']:.4f}")
+                print(f"   BM25: {result['bm25_score']:.4f}, Semantic: {result['semantic_score']:.4f}")
+                print(f"   {result['document']['document'][:100]}...\n")
+        case "rrf-search":
+            results = handle_rrf_search(args.query, args.k, args.limit)
+            for i, result in enumerate(results):
+                print(f"{i + 1}. {result['document']['title']}")
+                print(f"   RRF Score: {result['rrf_score']:.4f}")
+                print(f"   BM25 Rank: {result['bm25_rank']}, Semantic Rank: {result['semantic_rank']}")
+                print(f"   {result['document']['document'][:100]}...\n")
         case _:
             parser.print_help()
 
