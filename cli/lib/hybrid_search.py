@@ -1,13 +1,13 @@
-import os
-
+import os, time
 from typing import Literal
 
 from .search_utils import load_movies, RRF_K, DEFAULT_SEARCH_LIMIT
-from .query_enhancement import llm_spellcheck, llm_rewrite
+from .query_enhancement import llm_rerank_batch, llm_rerank_individual, llm_spellcheck, llm_rewrite, llm_expand
 
 from .keyword_search import InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
 
+from sentence_transformers import CrossEncoder
 
 class HybridSearch:
     def __init__(self, documents: list[dict]) -> None:
@@ -75,18 +75,29 @@ class HybridSearch:
         )
         return sorted_results
 
-    def rrf_search(self, query: str, k: int = RRF_K, limit: int = DEFAULT_SEARCH_LIMIT, enhance: Literal["spell", "rewrite"] | None = None) -> list[dict]:
+    def rrf_search(
+            self, 
+            query: str, 
+            k: int = RRF_K, 
+            limit: int = DEFAULT_SEARCH_LIMIT, 
+            enhance: Literal["spell", "rewrite", "expand"] | None = None, 
+            rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None
+        ) -> list[dict]:
         if enhance:
             original_query = query
             if enhance == "spell":
                 query = llm_spellcheck(original_query)
             elif enhance == "rewrite":
                 query = llm_rewrite(original_query)
+            elif enhance == "expand":
+                query = llm_expand(original_query)
             if query != original_query:
                 print(f"Enhanced query ({enhance}): '{original_query}' -> '{query}'\n")
 
-        bm25_results = self._bm25_search(query, limit * 500)
-        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+        mult = 5 if rerank_method else 1 # If rerank_method is specified, we multiply the limit by 5 to get more results for re-ranking. Otherwise, we use the original limit.
+
+        bm25_results = self._bm25_search(query, limit * mult)
+        semantic_results = self.semantic_search.search_chunks(query, limit * mult)
 
         # Combine results using the weighted sum of BM25 and semantic search scores
         # Create a dictionary to store the combined results with this structure: 
@@ -121,10 +132,69 @@ class HybridSearch:
                 combined_results[doc_id]["semantic_rank"] = i + 1
                 combined_results[doc_id]["rrf_score"] += rrf_score(i + 1, k)
 
-        # Sort the combined results by the RRF score in descending order and return the top `limit` results
+        # Sort the combined results by the RRF score in descending order
         sorted_results = sorted(
             combined_results.values(), key=lambda x: x["rrf_score"], reverse=True
         )
+
+        if rerank_method == "individual":
+            print(f"Re-ranking top {limit} results using {rerank_method} method...")
+            print(f"Making {len(sorted_results)} calls to the LLM for re-ranking...")
+            for result in sorted_results:
+                rerank_score = llm_rerank_individual(query, result["document"])
+                # Check if rerank_score can be converted to an integer, if not, set it to 0 and print a warning
+                try:
+                    rerank_score = int(rerank_score)
+                except ValueError:
+                    print(f"Warning: Rerank score '{rerank_score}' is not an integer for document '{result['document']['title']}'. Setting rerank score to 0.")
+                    rerank_score = 0
+                result["rerank_score"] = rerank_score
+                time.sleep(3)  # Sleep for 3 seconds to avoid rate limiting
+            sorted_results = sorted(
+                sorted_results, key=lambda x: x["rerank_score"], reverse=True
+            )
+        
+        if rerank_method == "batch":
+            print(f"Re-ranking top {limit} results using {rerank_method} method...")
+            rerank_batch = []
+            retries = 3
+            for attempt in range(1, retries):
+                print(f"Attempt {attempt} to rerank batch...")
+                try:
+                    rerank_batch = llm_rerank_batch(query, sorted_results)
+                    print(f"Rerank batch results: {rerank_batch}")
+                    if len(rerank_batch) == len(sorted_results):
+                        break  # If successful, exit the retry loop
+                    raise ValueError(f"Rerank batch length mismatch: expected {len(sorted_results)}, got {len(rerank_batch)}")
+                except Exception as e:
+                    print(f"Attempt {attempt} failed with error: {e}")
+                    if attempt < retries - 1:
+                        print("Retrying...")
+                    else:
+                        print("All retry attempts failed.")
+                        rerank_batch = []
+            if rerank_batch == []:
+                print("Rerank batch is empty after all retry attempts.")
+            else:
+                rank_by_id = {doc_id: rank for rank, doc_id in enumerate(rerank_batch, 1)} # Create a mapping of document IDs to their new ranks based on the rerank_batch
+
+                for result in sorted_results:
+                    doc_id = result["document"]["id"]
+                    result["rerank_rank"] = rank_by_id.get(doc_id, len(rerank_batch) + 1)
+
+                sorted_results = sorted(sorted_results, key=lambda x: x["rerank_rank"])
+
+        if rerank_method == "cross_encoder":
+            print(f"Re-ranking top {limit} results using {rerank_method} method...")
+            cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2")
+            pairs = []
+            for doc in sorted_results:
+                pairs.append([query, f"{doc.get('title', '')} - {doc.get('document', '')}"])
+            scores = cross_encoder.predict(pairs)
+            for i, result in enumerate(sorted_results):
+                result["cross_encoder_score"] = scores[i]
+            sorted_results = sorted(sorted_results, key=lambda x: x["cross_encoder_score"], reverse=True)
+
         return sorted_results
     
 def normalize(scores: list[float]) -> list[float]:
@@ -152,7 +222,13 @@ def handle_weighted_search(query: str, alpha: float, limit: int = 5) -> list[dic
     results = search_engine.weighted_search(query, alpha, limit)
     return results[:limit]
 
-def handle_rrf_search(query: str, k: int = RRF_K, limit: int = DEFAULT_SEARCH_LIMIT, enhance: Literal["spell", "rewrite"] | None = None) -> list[dict]:
+def handle_rrf_search(
+        query: str, 
+        k: int = RRF_K, 
+        limit: int = DEFAULT_SEARCH_LIMIT, 
+        enhance: Literal["spell", "rewrite", "expand"] | None = None, 
+        rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None,
+    ) -> list[dict]:
     search_engine = HybridSearch(load_movies())
-    results = search_engine.rrf_search(query, k, limit, enhance)
+    results = search_engine.rrf_search(query, k, limit, enhance, rerank_method)
     return results[:limit]

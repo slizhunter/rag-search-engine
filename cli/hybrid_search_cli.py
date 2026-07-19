@@ -42,7 +42,10 @@ def main() -> None:
         "--limit", type=int, default=5, help="Maximum number of results to return"
     )
     rrf_search_parser.add_argument(
-        "--enhance", type=str, choices=["spell", "rewrite"], help="Enhancement method to apply to the query"
+        "--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Enhancement method to apply to the query"
+    )
+    rrf_search_parser.add_argument(
+        "--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Method to use for reranking the results"
     )
 
     args = parser.parse_args()
@@ -56,14 +59,21 @@ def main() -> None:
             results = handle_weighted_search(args.query, args.alpha, args.limit)
             for i, result in enumerate(results):
                 print(f"{i + 1}. {result['document']['title']}")
-                print(f"   Hybrid Score: {result['hybrid_score']:.4f}")
-                print(f"   BM25: {result['bm25_score']:.4f}, Semantic: {result['semantic_score']:.4f}")
+                print(f"   Hybrid Score: {result['hybrid_score']:.3f}")
+                print(f"   BM25: {result['bm25_score']:.3f}, Semantic: {result['semantic_score']:.3f}")
                 print(f"   {result['document']['document'][:100]}...\n")
         case "rrf-search":
-            results = handle_rrf_search(args.query, args.k, args.limit, args.enhance)
-            for i, result in enumerate(results):
-                print(f"{i + 1}. {result['document']['title']}")
-                print(f"   RRF Score: {result['rrf_score']:.4f}")
+            results = handle_rrf_search(args.query, args.k, args.limit, args.enhance, args.rerank_method)
+            print(f"Reciprocal Rank Fusion Results for '{args.query}' (k={args.k}):")
+            for i, result in enumerate(results, 1):
+                print(f"{i}. {result['document']['title']}")
+                if "rerank_score" in result:
+                    print(f"   Re-rank Score: {result['rerank_score']:.3f}/10")
+                elif "rerank_rank" in result:
+                    print(f"   Re-rank Rank: {result['rerank_rank']}")
+                elif "cross_encoder_score" in result:
+                    print(f"   Cross Encoder Score: {result['cross_encoder_score']:.3f}")
+                print(f"   RRF Score: {result['rrf_score']:.3f}")
                 print(f"   BM25 Rank: {result['bm25_rank']}, Semantic Rank: {result['semantic_rank']}")
                 print(f"   {result['document']['document'][:100]}...\n")
         case _:
