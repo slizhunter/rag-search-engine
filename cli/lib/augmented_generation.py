@@ -1,14 +1,11 @@
-import logging
-import os, json
+import os
 
 from .hybrid_search import HybridSearch
 from .search_utils import (
-    load_golden_dataset,
     load_movies,
     DEFAULT_SEARCH_LIMIT,
     SEARCH_MULTIPLIER
 )
-from .semantic_search import SemanticSearch
 
 from dotenv import load_dotenv
 from openai import OpenAI
