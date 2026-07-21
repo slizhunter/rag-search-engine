@@ -83,7 +83,8 @@ class HybridSearch:
             k: int = RRF_K, 
             limit: int = DEFAULT_SEARCH_LIMIT, 
             enhance: Literal["spell", "rewrite", "expand"] | None = None, 
-            rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None
+            rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None,
+            evaluate: bool = False
         ) -> list[dict]:
         logging.info(f"RRF search called with query: '{query}'")
         if enhance:
@@ -145,10 +146,19 @@ class HybridSearch:
         for result in sorted_results:
             logging.info(f"RRF sorted result: ({result.get('rrf_score', '')}) {result['document'].get('title', '')}")
 
-        reranked_results = rrf_rerank(query, limit, rerank_method, sorted_results)
+        if rerank_method:
+            reranked_results = rrf_rerank(query, limit, rerank_method, sorted_results)
+            for result in reranked_results:
+                logging.info(f"RRF final reranked result: {result['document'].get('title', '')}")
+        else:
+            reranked_results = sorted_results
 
-        for result in reranked_results:
-            logging.info(f"RRF final reranked result: {result['document'].get('title', '')}")
+        if evaluate:
+            from .evaluation import llm_evaluate
+            evaluation_results = llm_evaluate(query, reranked_results[:limit])
+            for result, score in zip(reranked_results, evaluation_results):
+                result["eval_score"] = score
+
         return reranked_results
     
 def normalize(scores: list[float]) -> list[float]:
@@ -242,7 +252,8 @@ def handle_rrf_search(
         limit: int = DEFAULT_SEARCH_LIMIT, 
         enhance: Literal["spell", "rewrite", "expand"] | None = None, 
         rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None,
+        evaluate: bool = False,
     ) -> list[dict]:
     search_engine = HybridSearch(load_movies())
-    results = search_engine.rrf_search(query, k, limit, enhance, rerank_method)
+    results = search_engine.rrf_search(query, k, limit, enhance, rerank_method, evaluate)
     return results[:limit]

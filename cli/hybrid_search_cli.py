@@ -47,6 +47,9 @@ def main() -> None:
     rrf_search_parser.add_argument(
         "--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Method to use for reranking the results"
     )
+    rrf_search_parser.add_argument(
+        "--evaluate", action="store_true", help="Whether to evaluate the search results"
+    )
 
     args = parser.parse_args()
 
@@ -63,7 +66,7 @@ def main() -> None:
                 print(f"   BM25: {result['bm25_score']:.3f}, Semantic: {result['semantic_score']:.3f}")
                 print(f"   {result['document']['document'][:100]}...\n")
         case "rrf-search":
-            results = handle_rrf_search(args.query, args.k, args.limit, args.enhance, args.rerank_method)
+            results = handle_rrf_search(args.query, args.k, args.limit, args.enhance, args.rerank_method, args.evaluate)
             print(f"Reciprocal Rank Fusion Results for '{args.query}' (k={args.k}):")
             for i, result in enumerate(results, 1):
                 print(f"{i}. {result['document']['title']}")
@@ -76,6 +79,10 @@ def main() -> None:
                 print(f"   RRF Score: {result['rrf_score']:.3f}")
                 print(f"   BM25 Rank: {result['bm25_rank']}, Semantic Rank: {result['semantic_rank']}")
                 print(f"   {result['document']['document'][:100]}...\n")
+            if "eval_score" in result:
+                print(f"Evaluation Report:")
+                for i, result in enumerate(results, 1):
+                    print(f"{i}. {result['document']['title']}: {result['eval_score']}/3")
         case _:
             parser.print_help()
 
